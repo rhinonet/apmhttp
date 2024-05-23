@@ -152,7 +152,7 @@ func (r *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 					Statement: content,
 					Type:      "sql",
 				})
-				defer span2.End()
+				span2.End()
 			}
 		}
 	}
