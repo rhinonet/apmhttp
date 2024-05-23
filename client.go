@@ -19,8 +19,10 @@ package apmhttp // import "go.elastic.co/apm/module/apmhttp/v2"
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"unsafe"
 
@@ -130,30 +132,28 @@ func (r *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 			span.End()
 		} else {
 			span.Context.SetHTTPStatusCode(resp.StatusCode)
+
+			copyHeader := resp.Header.Clone()
+			headerLines := ""
+			for k, v := range copyHeader {
+				vv := strings.Join(v, "\t")
+				headerLines += fmt.Sprintf("%s:[%s]\n", k, vv)
+			}
+			if headerLines != "" {
+				headerLines += "\n\n"
+			}
 			var buf bytes.Buffer
 			_, err = io.Copy(&buf, resp.Body)
 			if err != nil {
 				// 处理错误
 				return resp, err
 			}
-			respHeader := resp.Header
-
-			resp.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
-			resp.Body = &responseBody{span: span, body: resp.Body, requestTracer: rt}
-
-			if span2 := apm.SpanFromContext(ctx); span2 != nil {
-				content := buf.String()
-
-				for key, val := range respHeader {
-					span2.Context.SetLabel(key, val)
-				}
-				span2.Name = ClientRequestName(req)
-				span2.Context.SetDatabase(apm.DatabaseSpanContext{
-					Statement: content,
-					Type:      "sql",
-				})
-				span2.End()
-			}
+			content := string(headerLines + buf.String())
+			span.Context.SetDatabase(apm.DatabaseSpanContext{
+				Statement: content,
+				Type:      "sql",
+			})
+			resp.Body = &responseBody{span: span, body: io.NopCloser(bytes.NewReader(buf.Bytes())), requestTracer: rt}
 		}
 	}
 	return resp, err
